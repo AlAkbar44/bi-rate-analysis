@@ -1,17 +1,86 @@
-# 📊 BI Rate, Inflation, & Financial Indicators Analysis
+# 📊 BI Rate, Inflation & Macroeconomic Indicators Analysis with SQL
 
-Proyek ini dirancang untuk mengintegrasikan, memfilter, dan menganalisis data ekonomi makro Indonesia—khususnya interaksi antara **BI Rate (Suku Bunga Bank Indonesia)**, **tingkat inflasi (YoY)**, **nilai tukar rupiah (USD/IDR)**, dan **cadangan devisa**—menggunakan query SQL tingkat lanjut di DBeaver.
+This project analyzes Indonesia's macroeconomic conditions by integrating and querying multiple economic datasets using advanced SQL techniques in PostgreSQL through DBeaver. The analysis focuses on the relationship between the **Bank Indonesia (BI) Interest Rate**, **Inflation (YoY)**, **USD/IDR Exchange Rate**, and **Foreign Exchange Reserves** to identify economic trends and generate data-driven insights.
 
 ---
 
-## 🚀 Fitur Utama & Penjelasan Kode
+# 🚀 Features
 
-Berikut adalah urutan logika query SQL per fitur analisis yang digunakan dalam proyek ini:
+- Multi-table data integration using SQL JOINs
+- Annual aggregation of macroeconomic indicators
+- BI Rate trend detection using Window Functions
+- Event study analysis before and after BI Rate changes
+- Pearson correlation analysis between economic indicators
+- Monthly exchange rate depreciation analysis
+- Recent macroeconomic trend monitoring
+- Exchange rate volatility analysis using Standard Deviation
+- Advanced SQL implementation using CTEs, Window Functions, Aggregate Functions, and Statistical Functions
+- Tableau-ready output for interactive dashboard visualization
 
-### 🔍 1. Integrasi Seluruh Dataset (Full Dataset JOIN)
-Fitur ini menggabungkan tabel dimensi waktu dengan seluruh tabel fakta indikator keuangan menggunakan pendekatan `LEFT JOIN` agar seluruh data sinkron berdasarkan ID periode[cite: 1].
+---
 
-<pre><code>
+# 📈 Workflow
+
+```text
+Raw CSV Datasets
+        │
+        ▼
+Import into PostgreSQL
+        │
+        ▼
+Data Integration
+(SQL JOIN)
+        │
+        ▼
+Data Aggregation
+(GROUP BY)
+        │
+        ▼
+Time-Series Analysis
+(Window Functions)
+        │
+        ▼
+Statistical Analysis
+(CORR, STDDEV)
+        │
+        ▼
+Event Study
+(Before vs After BI Rate Changes)
+        │
+        ▼
+Business Insights
+        │
+        ▼
+Interactive Dashboard
+(Tableau)
+```
+
+---
+
+# 🛠 Technologies
+
+- PostgreSQL
+- SQL
+- DBeaver
+- Tableau
+- CSV
+- Common Table Expressions (CTE)
+- Window Functions
+- Aggregate Functions
+- Statistical Functions
+- Time-Series Analysis
+
+---
+
+# 📌 SQL Analysis Overview
+
+The following sections describe the primary SQL analyses implemented throughout this project.
+
+## 🔍 1. Complete Dataset Integration (LEFT JOIN)
+
+This query integrates the time dimension table with multiple macroeconomic fact tables using **LEFT JOIN**, ensuring that all financial indicators are synchronized by reporting period.
+
+```sql
 SELECT
     dw.periode, dw.tahun, dw.nama_bulan, dw.kuartal,
     br.bi_rate, k.kurs_usdidr_avg,
@@ -22,18 +91,21 @@ LEFT JOIN fakta_kurs k ON dw.periode_id = k.periode_id
 LEFT JOIN fakta_inflasi inf ON dw.periode_id = inf.periode_id
 LEFT JOIN fakta_cadangan_devisa cd ON dw.periode_id = cd.periode_id
 ORDER BY dw.periode;
-</code></pre>
+```
 
-### 📈 2. Agregasi Rata-rata Indikator Tahunan
-Fitur ini menghitung rata-rata tahunan dari suku bunga, nilai tukar, tingkat inflasi, dan cadangan devisa untuk melihat tren makro jangka panjang dengan pembulatan desimal yang rapi[cite: 1].
+---
 
-<pre><code>
+## 📈 2. Annual Financial Indicator Aggregation
+
+Calculates annual average values for BI Rate, exchange rate, inflation, and foreign exchange reserves to identify long-term macroeconomic trends.
+
+```sql
 SELECT
     dw.tahun,
-    ROUND(AVG(br.bi_rate), 2)                   AS avg_bi_rate,
-    ROUND(AVG(k.kurs_usdidr_avg), 0)             AS avg_kurs,
-    ROUND(AVG(inf.inflasi_yoy), 2)               AS avg_inflasi,
-    ROUND(AVG(cd.cadangan_devisa_miliar_usd), 1) AS avg_cadangan_devisa
+    ROUND(AVG(br.bi_rate), 2) AS avg_bi_rate,
+    ROUND(AVG(k.kurs_usdidr_avg), 0) AS avg_kurs,
+    ROUND(AVG(inf.inflasi_yoy), 2) AS avg_inflasi,
+    ROUND(AVG(cd.cadangan_devisa_miliar_usd), 1) AS avg_foreign_reserves
 FROM dim_waktu dw
 LEFT JOIN fakta_bi_rate br ON dw.periode_id = br.periode_id
 LEFT JOIN fakta_kurs k ON dw.periode_id = k.periode_id
@@ -41,143 +113,301 @@ LEFT JOIN fakta_inflasi inf ON dw.periode_id = inf.periode_id
 LEFT JOIN fakta_cadangan_devisa cd ON dw.periode_id = cd.periode_id
 GROUP BY dw.tahun
 ORDER BY dw.tahun;
-</code></pre>
+```
 
-### 🔄 3. Deteksi Arah Perubahan BI-Rate (Window Function LAG)
-Menggunakan fungsi `LAG()` untuk membandingkan posisi suku bunga bulan berjalan dengan bulan sebelumnya guna mendeteksi momentum arah kebijakan moneter apakah naik, turun, atau tetap[cite: 1].
+---
 
-<pre><code>
+## 🔄 3. BI Rate Trend Detection (LAG Window Function)
+
+Uses the **LAG()** window function to compare the current BI Rate with the previous reporting period, allowing changes in monetary policy direction to be identified.
+
+```sql
 WITH rate_seq AS (
     SELECT
-        dw.periode, br.bi_rate,
-        LAG(br.bi_rate) OVER (ORDER BY dw.periode) AS rate_bulan_lalu
+        dw.periode,
+        br.bi_rate,
+        LAG(br.bi_rate) OVER (ORDER BY dw.periode) AS previous_rate
     FROM dim_waktu dw
-    JOIN fakta_bi_rate br ON dw.periode_id = br.periode_id
+    JOIN fakta_bi_rate br
+        ON dw.periode_id = br.periode_id
 )
 SELECT
-    periode, bi_rate, rate_bulan_lalu,
-    bi_rate - rate_bulan_lalu AS selisih,
+    periode,
+    bi_rate,
+    previous_rate,
+    bi_rate - previous_rate AS difference,
     CASE
-        WHEN bi_rate > rate_bulan_lalu THEN 'NAIK'
-        WHEN bi_rate < rate_bulan_lalu THEN 'TURUN'
-        ELSE 'TETAP'
-    END AS arah_perubahan
+        WHEN bi_rate > previous_rate THEN 'INCREASE'
+        WHEN bi_rate < previous_rate THEN 'DECREASE'
+        ELSE 'UNCHANGED'
+    END AS movement
 FROM rate_seq
-WHERE rate_bulan_lalu IS NOT NULL
-  AND bi_rate <> rate_bulan_lalu
+WHERE previous_rate IS NOT NULL
+  AND bi_rate <> previous_rate
 ORDER BY periode;
-</code></pre>
+```
 
-### 📅 4. Event Study: Kurs Sebelum vs Sesudah Perubahan Rate
-Analisis tingkat lanjut (*Event Study*) untuk mengevaluasi rata-rata pergerakan nilai tukar Rupiah pada jendela waktu 3 bulan sebelum dibandingkan dengan 3 bulan sesudah terjadinya perubahan BI Rate[cite: 1].
+---
 
-<pre><code>
+## 📅 4. Event Study Analysis
+
+Performs an event study by comparing the average USD/IDR exchange rate during the three months before and after each BI Rate adjustment.
+
+```sql
 WITH perubahan_rate AS (
     SELECT
-        dw.periode, dw.periode_id, br.bi_rate,
+        dw.periode,
+        dw.periode_id,
+        br.bi_rate,
         LAG(br.bi_rate) OVER (ORDER BY dw.periode) AS rate_sebelumnya
     FROM dim_waktu dw
-    JOIN fakta_bi_rate br ON dw.periode_id = br.periode_id
+    JOIN fakta_bi_rate br
+        ON dw.periode_id = br.periode_id
 ),
 event_dates AS (
     SELECT
         periode AS tanggal_event,
         periode_id AS event_periode_id,
-        CASE WHEN bi_rate > rate_sebelumnya THEN 'NAIK' ELSE 'TURUN' END AS jenis_event
+        CASE
+            WHEN bi_rate > rate_sebelumnya THEN 'NAIK'
+            ELSE 'TURUN'
+        END AS jenis_event
     FROM perubahan_rate
-    WHERE rate_sebelumnya IS NOT NULL AND bi_rate <> rate_sebelumnya
+    WHERE rate_sebelumnya IS NOT NULL
+      AND bi_rate <> rate_sebelumnya
 )
 SELECT
-    e.tanggal_event, e.jenis_event,
-    ROUND(AVG(CASE WHEN dw.periode_id BETWEEN e.event_periode_id - 3 AND e.event_periode_id - 1
-               THEN k.kurs_usdidr_avg END), 0) AS kurs_avg_3bln_sebelum,
-    ROUND(AVG(CASE WHEN dw.periode_id BETWEEN e.event_periode_id AND e.event_periode_id + 2
-               THEN k.kurs_usdidr_avg END), 0) AS kurs_avg_3bln_sesudah
+    e.tanggal_event,
+    e.jenis_event,
+    ROUND(AVG(
+        CASE
+            WHEN dw.periode_id BETWEEN e.event_periode_id-3
+            AND e.event_periode_id-1
+            THEN k.kurs_usdidr_avg
+        END),0) AS kurs_avg_3bln_sebelum,
+
+    ROUND(AVG(
+        CASE
+            WHEN dw.periode_id BETWEEN e.event_periode_id
+            AND e.event_periode_id+2
+            THEN k.kurs_usdidr_avg
+        END),0) AS kurs_avg_3bln_sesudah
+
 FROM event_dates e
-JOIN dim_waktu dw ON dw.periode_id BETWEEN e.event_periode_id - 3 AND e.event_periode_id + 2
-JOIN fakta_kurs k ON dw.periode_id = k.periode_id
-GROUP BY e.tanggal_event, e.jenis_event
-ORDER BY e.tanggal_event;
-</code></pre>
+JOIN dim_waktu dw
+ON dw.periode_id BETWEEN e.event_periode_id-3
+AND e.event_periode_id+2
 
-### 🧮 5. Matriks Korelasi Statistik (CORR)
-Mengukur kekuatan hubungan linear statistik antar indikator ekonomi makro menggunakan fungsi koefisien korelasi Pearson (`CORR`)[cite: 1].
+JOIN fakta_kurs k
+ON dw.periode_id = k.periode_id
 
-<pre><code>
+GROUP BY
+e.tanggal_event,
+e.jenis_event
+
+ORDER BY
+e.tanggal_event;
+```
+
+---
+
+## 📊 5. Correlation Analysis (CORR)
+
+Calculates Pearson correlation coefficients to measure the strength of relationships between BI Rate, inflation, and the USD/IDR exchange rate.
+
+```sql
 SELECT
-    ROUND(CORR(br.bi_rate, k.kurs_usdidr_avg)::numeric, 3)      AS korelasi_rate_vs_kurs,
-    ROUND(CORR(br.bi_rate, inf.inflasi_yoy)::numeric, 3)         AS korelasi_rate_vs_inflasi,
-    ROUND(CORR(k.kurs_usdidr_avg, inf.inflasi_yoy)::numeric, 3)  AS korelasi_kurs_vs_inflasi
+    ROUND(CORR(br.bi_rate, k.kurs_usdidr_avg)::numeric,3)
+        AS correlation_rate_vs_exchange,
+
+    ROUND(CORR(br.bi_rate, inf.inflasi_yoy)::numeric,3)
+        AS correlation_rate_vs_inflation,
+
+    ROUND(CORR(k.kurs_usdidr_avg, inf.inflasi_yoy)::numeric,3)
+        AS correlation_exchange_vs_inflation
+
 FROM dim_waktu dw
-JOIN fakta_bi_rate br ON dw.periode_id = br.periode_id
-JOIN fakta_kurs k ON dw.periode_id = k.periode_id
-JOIN fakta_inflasi inf ON dw.periode_id = inf.periode_id;
-</code></pre>
+JOIN fakta_bi_rate br
+ON dw.periode_id = br.periode_id
 
-### 📉 6. Top 10 Depresiasi Kurs Bulanan Terbesar (MoM)
-Mengidentifikasi 10 periode fluktuasi terburuk di mana mata uang Rupiah mengalami pelemahan (depresiasi) persentase bulanan tertinggi terhadap Dollar AS[cite: 1].
+JOIN fakta_kurs k
+ON dw.periode_id = k.periode_id
 
-<pre><code>
+JOIN fakta_inflasi inf
+ON dw.periode_id = inf.periode_id;
+```
+
+---
+
+## 📉 6. Top 10 Monthly Currency Depreciation
+
+Identifies the ten largest monthly depreciations of the Indonesian Rupiah against the US Dollar.
+
+```sql
 WITH kurs_seq AS (
     SELECT
-        dw.periode, k.kurs_usdidr_avg,
-        LAG(k.kurs_usdidr_avg) OVER (ORDER BY dw.periode) AS kurs_bulan_lalu
+        dw.periode,
+        k.kurs_usdidr_avg,
+        LAG(k.kurs_usdidr_avg)
+        OVER (ORDER BY dw.periode)
+        AS kurs_bulan_lalu
+
     FROM dim_waktu dw
-    JOIN fakta_kurs k ON dw.periode_id = k.periode_id
+    JOIN fakta_kurs k
+    ON dw.periode_id = k.periode_id
 )
+
 SELECT
-    periode, kurs_usdidr_avg, kurs_bulan_lalu,
-    ROUND(((kurs_usdidr_avg - kurs_bulan_lalu) / kurs_bulan_lalu * 100)::numeric, 2) AS depresiasi_persen_mom
+    periode,
+    kurs_usdidr_avg,
+    kurs_bulan_lalu,
+
+    ROUND(
+        (
+        (kurs_usdidr_avg-kurs_bulan_lalu)
+        /kurs_bulan_lalu*100
+        )::numeric,2
+    ) AS depreciation_percentage
+
 FROM kurs_seq
+
 WHERE kurs_bulan_lalu IS NOT NULL
-ORDER BY depresiasi_persen_mom DESC
+
+ORDER BY depreciation_percentage DESC
+
 LIMIT 10;
-```</pre>
+```
 
-### 💼 7. Studi Kasus Terbaru (Mei 2025 – Juni 2026)
-Mengisolasi data historis teranyar untuk mengamati tren kebijakan moneter dan besar penurunan/intervensi cadangan devisa bulanan secara kontemporer[cite: 1].
+---
 
-<pre><code>
+## 📈 7. Recent Economic Trend Analysis
+
+Examines recent BI Rate, exchange rate, inflation, and foreign reserve movements to monitor current macroeconomic conditions.
+
+```sql
 SELECT
-    dw.periode, br.bi_rate, k.kurs_usdidr_avg,
-    inf.inflasi_yoy, cd.cadangan_devisa_miliar_usd,
-    LAG(cd.cadangan_devisa_miliar_usd) OVER (ORDER BY dw.periode) - cd.cadangan_devisa_miliar_usd
-        AS penurunan_devisa_mom
+    dw.periode,
+    br.bi_rate,
+    k.kurs_usdidr_avg,
+    inf.inflasi_yoy,
+    cd.cadangan_devisa_miliar_usd,
+
+    LAG(cd.cadangan_devisa_miliar_usd)
+    OVER (ORDER BY dw.periode)
+    - cd.cadangan_devisa_miliar_usd
+    AS reserve_change
+
 FROM dim_waktu dw
-LEFT JOIN fakta_bi_rate br ON dw.periode_id = br.periode_id
-LEFT JOIN fakta_kurs k ON dw.periode_id = k.periode_id
-LEFT JOIN fakta_inflasi inf ON dw.periode_id = inf.periode_id
-LEFT JOIN fakta_cadangan_devisa cd ON dw.periode_id = cd.periode_id
+
+LEFT JOIN fakta_bi_rate br
+ON dw.periode_id = br.periode_id
+
+LEFT JOIN fakta_kurs k
+ON dw.periode_id = k.periode_id
+
+LEFT JOIN fakta_inflasi inf
+ON dw.periode_id = inf.periode_id
+
+LEFT JOIN fakta_cadangan_devisa cd
+ON dw.periode_id = cd.periode_id
+
 WHERE dw.periode >= '2025-05-01'
+
 ORDER BY dw.periode;
-</code></pre>
+```
 
-### ⚡ 8. Ranking Volatilitas Kurs per Tahun (STDDEV)
-Mengukur tingkat risiko volatilitas pasar valuta asing tahunan menggunakan fungsi Standar Deviasi (`STDDEV`), lengkap dengan pemetaan rentang nilai kurs terendah dan tertinggi[cite: 1].
+---
 
-<pre><code>
+## ⚡ 8. Annual Exchange Rate Volatility
+
+Measures yearly exchange rate volatility using the SQL **STDDEV()** function while also identifying the minimum and maximum exchange rates recorded each year.
+
+```sql
 SELECT
     dw.tahun,
-    ROUND(STDDEV(k.kurs_usdidr_avg)::numeric, 0) AS volatilitas_kurs,
-    ROUND(MIN(k.kurs_usdidr_avg)::numeric, 0)    AS kurs_terendah,
-    ROUND(MAX(k.kurs_usdidr_avg)::numeric, 0)    AS kurs_tertinggi
+
+    ROUND(STDDEV(k.kurs_usdidr_avg)::numeric,0)
+    AS exchange_rate_volatility,
+
+    ROUND(MIN(k.kurs_usdidr_avg)::numeric,0)
+    AS minimum_exchange_rate,
+
+    ROUND(MAX(k.kurs_usdidr_avg)::numeric,0)
+    AS maximum_exchange_rate
+
 FROM dim_waktu dw
-JOIN fakta_kurs k ON dw.periode_id = k.periode_id
+
+JOIN fakta_kurs k
+ON dw.periode_id = k.periode_id
+
 GROUP BY dw.tahun
-ORDER BY volatilitas_kurs DESC;
-</code></pre>
+
+ORDER BY exchange_rate_volatility DESC;
+```
 
 ---
 
-## 📁 Struktur Folder & Aset
-- `BI_query.sql` : Berkas utama tempat seluruh script query database disimpan[cite: 1].
-- `data/` : Folder berisi berkas dataset mentah makroekonomi (.csv / .xlsx).
-- `dashboard/` : Folder berisi file rancangan visualisasi interaktif / Tableau workbook.
+# 📂 Project Structure
+
+```text
+.
+├── BI_query.sql
+├── README.md
+├── data/
+│   ├── bi_rate.csv
+│   ├── inflation.csv
+│   ├── exchange_rate.csv
+│   └── foreign_reserves.csv
+└── dashboard/
+    ├── tableau_dashboard.twb
+    └── dashboard_preview.png
+```
 
 ---
 
-## 🛠️ Cara Menggunakan Proyek Ini
+# ⚙ Installation
 
-1. **Clone Repositori ini:**
+### 1. Clone the repository
+
 ```bash
 git clone https://github.com/AlAkbar44/Bi-Rate-Analysis.git
+```
+
+### 2. Open the project
+
+```bash
+cd Bi-Rate-Analysis
+```
+
+### 3. Import the datasets
+
+Import all CSV files into **PostgreSQL**, then execute the SQL script using **DBeaver**.
+
+---
+
+# 📊 Analysis Output
+
+The project provides:
+
+- Integrated macroeconomic dataset
+- Annual BI Rate summary
+- Inflation trend analysis
+- Exchange rate analysis
+- Event study results
+- Correlation analysis
+- Currency depreciation ranking
+- Exchange rate volatility analysis
+- Interactive Tableau dashboard
+
+---
+
+# 👨‍💻 Author
+
+**Al Akbar Himawan**
+
+Junior Data Analyst | SQL | PostgreSQL | Tableau | Business Intelligence
+
+- GitHub: https://github.com/AlAkbar44
+- LinkedIn: https://www.linkedin.com/in/alakbarhimawan
+- Email: himawanalakbar6@gmail.com
+
